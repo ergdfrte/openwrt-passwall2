@@ -48,19 +48,55 @@ is_safe_cache_key() {
 	esac
 }
 
+is_safe_shell_name() {
+	case "$1" in
+		[A-Za-z_][A-Za-z0-9_]*)
+			return 0
+		;;
+		*)
+			return 1
+		;;
+	esac
+}
+
 eval_set_val() {
-	for i in $@; do
-		for j in $i; do
-			eval $j
-		done
+	for arg in "$@"; do
+		case "$arg" in
+			*=*)
+				local key="${arg%%=*}"
+				local val="${arg#*=}"
+				is_safe_shell_name "$key" || continue
+				export "${key}=${val}"
+			;;
+		esac
 	done
 }
 
 eval_unset_val() {
-	for i in $@; do
-		for j in $i; do
-			eval unset j
-		done
+	for arg in "$@"; do
+		local key="${arg%%=*}"
+		is_safe_shell_name "$key" || continue
+		unset "$key"
+	done
+}
+eval_set_val() {
+	for arg in "$@"; do
+		case "$arg" in
+			*=*)
+				local key="${arg%%=*}"
+				local val="${arg#*=}"
+				is_safe_shell_name "$key" || continue
+				export "${key}=${val}"
+			;;
+		esac
+	done
+}
+
+eval_unset_val() {
+	for arg in "$@"; do
+		local key="${arg%%=*}"
+		is_safe_shell_name "$key" || continue
+		unset "$key"
 	done
 }
 
@@ -225,8 +261,6 @@ get_node_host_ip() {
 
 get_ip_port_from() {
 	local __host=${1}; shift 1
-	local __ipv=${1}; shift 1
-	local __portv=${1}; shift 1
 	local __ucipriority=${1}; shift 1
 
 	local val1 val2
@@ -237,7 +271,8 @@ get_ip_port_from() {
 		val2=$(echo $__host | sed -n 's/^.*[:#]\([0-9]*\)$/\1/p')
 		val1="${__host%%${val2:+[:#]${val2}*}}"
 	fi
-	eval "${__ipv}=\"$val1\"; ${__portv}=\"$val2\""
+	GET_IP_PORT_FROM_IP="$val1"
+	GET_IP_PORT_FROM_PORT="$val2"
 }
 
 host_from_url(){
@@ -259,17 +294,15 @@ host_from_url(){
 }
 
 hosts_foreach() {
-	local __hosts
-	eval "__hosts=\$${1}"; shift 1
+	local __hosts=${1}; shift 1
 	local __func=${1}; shift 1
 	local __default_port=${1}; shift 1
 	local __ret=1
 
 	[ -z "${__hosts}" ] && return 0
-	local __ip __port
 	for __host in $(echo $__hosts | sed 's/[ ,]/\n/g'); do
-		get_ip_port_from "$__host" "__ip" "__port"
-		eval "$__func \"${__host}\" \"\${__ip}\" \"\${__port:-${__default_port}}\" \"$@\""
+		get_ip_port_from "$__host"
+		"$__func" "${__host}" "${GET_IP_PORT_FROM_IP}" "${GET_IP_PORT_FROM_PORT:-${__default_port}}" "$@"
 		__ret=$?
 		[ ${__ret} -ge ${ERROR_NO_CATCH:-1} ] && return ${__ret}
 	done
@@ -282,7 +315,7 @@ get_first_dns() {
 		echo "${2}#${3}"
 		return 1
 	}
-	eval "hosts_foreach \"${__hosts_val}\" __first \"$@\""
+	hosts_foreach "${__hosts_val}" __first "$@"
 }
 
 get_last_dns() {
@@ -293,7 +326,7 @@ get_last_dns() {
 		__last="${2}#${3}"
 		__first=${__first:-${__last}}
 	}
-	eval "hosts_foreach \"${__hosts_val}\" __every \"$@\""
+	hosts_foreach "${__hosts_val}" __every "$@"
 	[ "${__first}" ==  "${__last}" ] || echo "${__last}"
 }
 

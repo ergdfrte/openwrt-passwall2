@@ -75,6 +75,9 @@ local function is_safe_cache_key(value)
 	return type(value) == "string" and value:match("^[A-Za-z0-9_]+$") ~= nil
 end
 
+local function shellquote_arg(value)
+	return util.shellquote(tostring(value or ""))
+end
 function uci_save(cursor, config, commit, apply)
 	if is_old_uci() then
 		cursor:save(config)
@@ -192,6 +195,13 @@ function get_new_port()
 end
 
 function exec_call(cmd)
+	if type(cmd) == "table" then
+		local parts = {}
+		for _, part in ipairs(cmd) do
+			parts[#parts + 1] = shellquote_arg(part)
+		end
+		cmd = table.concat(parts, " ")
+	end
 	local process = io.popen(cmd .. '; echo -e "\n$?"')
 	local lines = {}
 	local result = ""
@@ -264,10 +274,15 @@ end
 
 function curl_base(url, file, args)
 	if not args then args = {} end
-	if file then
-		args[#args + 1] = "-o " .. file
+	local cmd = {"curl"}
+	for _, arg in ipairs(args) do
+		cmd[#cmd + 1] = arg
 	end
-	local cmd = string.format('curl %s "%s"', table_join(args), url)
+	if file then
+		cmd[#cmd + 1] = "-o"
+		cmd[#cmd + 1] = file
+	end
+	cmd[#cmd + 1] = url
 	return exec_call(cmd)
 end
 
